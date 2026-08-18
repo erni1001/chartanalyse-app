@@ -8,28 +8,7 @@ import streamlit as st
 import yfinance as yf
 from plotly.subplots import make_subplots
 
-st.set_page_config(
-    page_title='Chart Signal Analyzer',
-    page_icon='📈',
-    layout='wide',
-    initial_sidebar_state='expanded',
-)
-
-# iPad / mobile friendly spacing and larger touch targets.
-st.markdown(
-    """
-    <style>
-      .block-container {padding-top: 1.2rem; padding-bottom: 2rem;}
-      div[data-baseweb="select"] > div, .stTextInput input {min-height: 44px;}
-      .stButton button {min-height: 44px; font-size: 1rem;}
-      @media (max-width: 900px) {
-        .block-container {padding-left: 0.8rem; padding-right: 0.8rem;}
-        h1 {font-size: 1.8rem !important;}
-      }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+st.set_page_config(page_title='Chart Signal Analyzer', page_icon='📈', layout='wide')
 
 
 @dataclass
@@ -84,6 +63,7 @@ def score_signal(df: pd.DataFrame) -> SignalResult:
     score = 50
     reasons: list[str] = []
 
+    # Trend: max +/- 22
     if row['Close'] > row['EMA20'] > row['EMA50']:
         score += 14
         reasons.append('Kurzfristiger Trend bullish: Kurs > EMA20 > EMA50')
@@ -99,6 +79,7 @@ def score_signal(df: pd.DataFrame) -> SignalResult:
             score -= 8
             reasons.append('Kurs liegt unter EMA200')
 
+    # Momentum: max +/- 18
     if 45 <= row['RSI14'] <= 65:
         score += 8
         reasons.append(f'RSI {row["RSI14"]:.1f}: konstruktives Momentum')
@@ -124,6 +105,7 @@ def score_signal(df: pd.DataFrame) -> SignalResult:
         score -= 5
         reasons.append('MACD negativ')
 
+    # Volume confirmation: +/- 7
     if row['Volume'] > row['VOL_MA20'] * 1.15:
         if row['Close'] > prev['Close']:
             score += 7
@@ -132,6 +114,7 @@ def score_signal(df: pd.DataFrame) -> SignalResult:
             score -= 7
             reasons.append('Fallender Kurs mit überdurchschnittlichem Volumen')
 
+    # Bollinger context: +/- 5
     if row['Close'] < row['BB_LOWER']:
         score += 5
         reasons.append('Kurs unter unterem Bollinger-Band')
@@ -169,31 +152,10 @@ st.caption('Technische Analyse mit Kauf-/Verkaufsscore. Kein automatischer Hande
 
 with st.sidebar:
     st.header('Analyse')
-
-    markets = {
-        'Ethereum (ETH/USD)': 'ETH-USD',
-        'Bitcoin (BTC/USD)': 'BTC-USD',
-        'DAX 40': '^GDAXI',
-        'US 100 / Nasdaq 100': '^NDX',
-        'S&P 500': '^GSPC',
-        'Dow Jones': '^DJI',
-        'Gold': 'GC=F',
-        'Silber': 'SI=F',
-        'Nvidia': 'NVDA',
-        'Apple': 'AAPL',
-        'Tesla': 'TSLA',
-        'Eigener Ticker': '',
-    }
-    market = st.selectbox('Markt', list(markets.keys()), index=0)
-    if market == 'Eigener Ticker':
-        ticker = st.text_input('Ticker', value='ETH-USD').strip().upper()
-    else:
-        ticker = markets[market]
-        st.caption(f'Yahoo-Finance-Symbol: {ticker}')
-
+    ticker = st.text_input('Ticker', value='ETH-USD').strip().upper()
     period = st.selectbox('Zeitraum', ['1mo', '3mo', '6mo', '1y', '2y'], index=2)
     interval = st.selectbox('Intervall', ['15m', '30m', '1h', '1d'], index=2)
-    st.info('Enthalten: DAX 40, US 100, S&P 500, Dow Jones, Gold, Silber, BTC, ETH und Aktien.')
+    st.info('Beispiele: ETH-USD, BTC-USD, NVDA, AAPL, TSLA, ^GDAXI')
 
 try:
     raw = load_data(ticker, period, interval)
@@ -210,25 +172,9 @@ try:
     c3.metric('Kurs', f'{result.entry:,.2f}')
     c4.metric('RSI 14', f'{last["RSI14"]:.1f}')
 
-    fig = make_subplots(
-        rows=3,
-        cols=1,
-        shared_xaxes=True,
-        vertical_spacing=0.04,
-        row_heights=[0.58, 0.20, 0.22],
-    )
-    fig.add_trace(
-        go.Candlestick(
-            x=df.index,
-            open=df['Open'],
-            high=df['High'],
-            low=df['Low'],
-            close=df['Close'],
-            name='Kurs',
-        ),
-        row=1,
-        col=1,
-    )
+    fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.04,
+                        row_heights=[0.58, 0.20, 0.22])
+    fig.add_trace(go.Candlestick(x=df.index, open=df['Open'], high=df['High'], low=df['Low'], close=df['Close'], name='Kurs'), row=1, col=1)
     for col, name in [('EMA20', 'EMA20'), ('EMA50', 'EMA50'), ('EMA200', 'EMA200')]:
         fig.add_trace(go.Scatter(x=df.index, y=df[col], mode='lines', name=name), row=1, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['BB_UPPER'], mode='lines', name='BB oben', line=dict(width=1)), row=1, col=1)
@@ -241,14 +187,8 @@ try:
     fig.add_trace(go.Bar(x=df.index, y=df['MACD_HIST'], name='MACD Hist'), row=3, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MACD'], mode='lines', name='MACD'), row=3, col=1)
     fig.add_trace(go.Scatter(x=df.index, y=df['MACD_SIGNAL'], mode='lines', name='Signal'), row=3, col=1)
-    fig.update_layout(
-        height=820,
-        xaxis_rangeslider_visible=False,
-        legend_orientation='h',
-        margin=dict(l=10, r=10, t=35, b=10),
-        hovermode='x unified',
-    )
-    st.plotly_chart(fig, use_container_width=True, config={'displaylogo': False, 'responsive': True})
+    fig.update_layout(height=850, xaxis_rangeslider_visible=False, legend_orientation='h')
+    st.plotly_chart(fig, use_container_width=True)
 
     st.subheader('Signalbewertung')
     left, right = st.columns([1, 1])
